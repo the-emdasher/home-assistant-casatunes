@@ -22,6 +22,22 @@ The project now contains an initial working integration slice. See:
 
 No code from previous CasaTunes Home Assistant integrations is used.
 
+## Installation with HACS
+
+This integration is currently distributed as a custom HACS repository:
+
+1. In HACS, open **Integrations**.
+2. Open the three-dot menu and choose **Custom repositories**.
+3. Enter `https://github.com/the-emdasher/home-assistant-casatunes` and select
+   **Integration** as the category.
+4. Add the repository, select **CasaTunes**, and choose **Download**.
+5. Restart Home Assistant.
+6. Go to **Settings > Devices & services > Add integration**, search for
+   **CasaTunes**, and enter the CasaTunes server connection details.
+
+HACS requires access to the public GitHub repository when initially adding or
+updating the integration.
+
 ## Current implementation
 
 - UI setup using host and REST API port
