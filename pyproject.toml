@@ -1,0 +1,18 @@
+[project]
+name = "homeassistant-casatunes"
+version = "0.1.0"
+description = "CasaTunes integration for Home Assistant"
+requires-python = ">=3.13"
+dependencies = ["aiohttp>=3.10"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["custom_components/casatunes"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM"]

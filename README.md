@@ -1,0 +1,79 @@
+# CasaTunes for Home Assistant
+
+A clean-room Home Assistant integration for CasaTunes 5 systems, built from
+CasaTunes' documented REST API.
+
+The project now contains an initial working integration slice. See:
+
+- [CasaTunes REST API catalog](docs/API_CATALOG.md)
+- [Home Assistant capability mapping](docs/HOME_ASSISTANT_MAPPING.md)
+- [Initial live response capture](docs/LIVE_CAPTURE.md)
+- [Enum and image reference](docs/API_REFERENCE_VALUES.md)
+
+## Design goals
+
+- Use Home Assistant's standard media-player behavior wherever possible.
+- Keep all network I/O asynchronous and isolate it in a reusable client library.
+- Determine supported features dynamically from CasaTunes source and zone
+  capability data.
+- Make potentially disruptive or administrative operations explicit and safe.
+- Support UI configuration, stable unique IDs, diagnostics, reconfiguration,
+  unload/reload, and comprehensive fixture-based tests from the start.
+
+No code from previous CasaTunes Home Assistant integrations is used.
+
+## Current implementation
+
+- UI setup using host and REST API port
+- Connection validation and duplicate-server detection
+- One coordinated snapshot of server, zone, source, and now-playing state
+- A media-player entity for each visible zone, with an option to include hidden
+  zones
+- Power, volume, mute, source, transport, seek, repeat, and shuffle controls
+- Native Home Assistant media browsing and search over CasaTunes collections
+- Play-media and enqueue routing, queue browsing, queue-item playback, and queue
+  clearing
+- Standard Home Assistant speaker grouping and ungrouping mappings
+- Capability-driven advanced zone numbers and switches, disabled by default
+- Host/port reconfiguration, reload-on-change options, and privacy-safe
+  diagnostics
+- Source-centric metadata and CasaTunes artwork URL handling
+- Automatic recovery from temporary connection failures
+- Fixture-based client/model tests plus Home Assistant config-flow,
+  coordinator, entity-property, feature, and command-mapping tests
+- Guarded, state-restoring live control harnesses for deliberately selected
+  zones, media queues, and zone pairs
+
+The integration is still pre-release. EQ preset selection, playlist editing,
+announcements, tasks, and broader end-to-end Home Assistant coverage remain
+before normal installation is recommended.
+
+## Development checks
+
+```shell
+python3 -m unittest discover -s tests -t . -v
+python3 -m compileall -q custom_components tests tools
+ruff check .
+ruff format --check .
+```
+
+The optional probes perform only read operations and print sanitized summaries.
+The first covers the coordinator; the second covers media roots, one nested
+collection, search, and the queue:
+
+```shell
+python3 tools/probe_readonly.py casaserver.local
+python3 tools/probe_media_readonly.py casaserver.local "Test Zone"
+python3 tools/probe_capabilities_readonly.py casaserver.local "Test Zone"
+```
+
+Live control validation is intentionally separate and requires an explicit
+acknowledgement flag. Each harness uses exact visible-zone matches and guarded
+preconditions appropriate to the operation:
+
+```shell
+python3 tools/live_test_zone.py casaserver.local "Test Zone" --execute
+python3 tools/live_test_media.py casaserver.local "Test Zone" --execute
+python3 tools/live_test_grouping.py casaserver.local "Leader Zone" \
+  "Joining Zone" --execute
+```

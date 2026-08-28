@@ -1,0 +1,43 @@
+{
+  "title": "CasaTunes",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to CasaTunes",
+        "description": "Enter the host name or IP address of the CasaTunes server.",
+        "data": {
+          "host": "Host",
+          "port": "REST API port",
+          "include_hidden": "Include hidden zones"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconnect CasaTunes",
+        "description": "Update the host name or IP address and REST API port.",
+        "data": {
+          "host": "Host",
+          "port": "REST API port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to CasaTunes",
+      "invalid_response": "CasaTunes returned an invalid response",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This CasaTunes server is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "CasaTunes options",
+        "description": "Choose which CasaTunes zones Home Assistant exposes.",
+        "data": {
+          "include_hidden": "Include hidden zones"
+        }
+      }
+    }
+  }
+}
