@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -26,6 +27,7 @@ _LOGGER = logging.getLogger(__name__)
 
 OPTIMISTIC_STATE_SECONDS = 5.0
 POSITION_TOLERANCE_SECONDS = 3
+DYNAMIC_REFRESH_INTERVAL_SECONDS = 1.0
 
 
 class CasaTunesCoordinator(DataUpdateCoordinator[CasaTunesSnapshot]):
@@ -48,6 +50,78 @@ class CasaTunesCoordinator(DataUpdateCoordinator[CasaTunesSnapshot]):
         self.zone_capabilities: dict[str, ZoneCapabilities] = {}
         self._pending_mutes: dict[str, tuple[bool, float]] = {}
         self._pending_positions: dict[int, tuple[int, datetime, float]] = {}
+        self._casatunes_refresh_lock = asyncio.Lock()
+        self._dynamic_refresh_task: asyncio.Task[None] | None = None
+        self._last_full_refresh_started = 0.0
+
+    @callback
+    def async_start_dynamic_refresh(self) -> None:
+        """Start the config-entry-managed dynamic state refresh."""
+        if (
+            self._dynamic_refresh_task is not None
+            and not self._dynamic_refresh_task.done()
+        ):
+            return
+        self._dynamic_refresh_task = self.config_entry.async_create_background_task(
+            self.hass,
+            self._async_dynamic_refresh_loop(),
+            f"{DOMAIN} dynamic refresh",
+        )
+
+    async def async_stop_dynamic_refresh(self) -> None:
+        """Stop the dynamic state refresh and wait for it to finish."""
+        task = self._dynamic_refresh_task
+        self._dynamic_refresh_task = None
+        if task is None:
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    async def _async_dynamic_refresh_loop(self) -> None:
+        """Refresh dynamic data every second and retain full refresh cadence."""
+        loop = asyncio.get_running_loop()
+        full_interval = DEFAULT_SCAN_INTERVAL.total_seconds()
+        while True:
+            tick_started = loop.time()
+            try:
+                if tick_started - self._last_full_refresh_started >= full_interval:
+                    await self.async_refresh()
+                else:
+                    await self.async_refresh_dynamic_data()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - background tasks must remain supervised
+                _LOGGER.exception("Unexpected error refreshing dynamic CasaTunes state")
+            elapsed = loop.time() - tick_started
+            await asyncio.sleep(max(0, DYNAMIC_REFRESH_INTERVAL_SECONDS - elapsed))
+
+    async def async_refresh_dynamic_data(self) -> bool:
+        """Fetch and publish only rapidly changing CasaTunes state."""
+        try:
+            async with self._casatunes_refresh_lock:
+                zones, now_playing = await asyncio.gather(
+                    self.client.async_get_zones(),
+                    self.client.async_get_now_playing(),
+                )
+                if self.data is None:
+                    return False
+                snapshot = self._apply_pending_state(
+                    replace(
+                        self.data,
+                        zones=zones,
+                        now_playing=now_playing,
+                        captured_at=datetime.now(UTC),
+                    )
+                )
+                self.async_set_updated_data(snapshot)
+        except CasaTunesError as err:
+            _LOGGER.debug("Unable to refresh dynamic CasaTunes state: %s", err)
+            return False
+        except Exception:  # noqa: BLE001 - keep the fast path isolated
+            _LOGGER.exception("Unexpected error refreshing dynamic CasaTunes state")
+            return False
+        return True
 
     @callback
     def async_set_optimistic_mute(self, zone: Zone, mute: bool) -> None:
@@ -158,8 +232,10 @@ class CasaTunesCoordinator(DataUpdateCoordinator[CasaTunesSnapshot]):
             self.zone_capabilities[zone.persistent_zone_id] = result
 
     async def _async_update_data(self) -> CasaTunesSnapshot:
-        try:
-            snapshot = await self.client.async_get_snapshot()
-        except CasaTunesError as err:
-            raise UpdateFailed(f"Unable to update CasaTunes state: {err}") from err
-        return self._apply_pending_state(snapshot)
+        async with self._casatunes_refresh_lock:
+            self._last_full_refresh_started = asyncio.get_running_loop().time()
+            try:
+                snapshot = await self.client.async_get_snapshot()
+            except CasaTunesError as err:
+                raise UpdateFailed(f"Unable to update CasaTunes state: {err}") from err
+            return self._apply_pending_state(snapshot)

@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.2.3 - 2026-08-29
+
+### Improved
+
+- Publish external CasaTunes zone, playback, position, and now-playing changes
+  to Home Assistant on a one-second dynamic refresh path.
+- Keep the authoritative ten-second full snapshot for system and source-catalog
+  reconciliation while preventing full and dynamic refresh races.
+- Isolate transient dynamic-refresh failures so they do not mark the integration
+  unavailable or terminate its lifecycle-managed task.
+
 ## 0.2.2 - 2026-08-29
 
 ### Fixed

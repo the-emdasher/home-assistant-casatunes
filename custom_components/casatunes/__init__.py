@@ -50,9 +50,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: CasaTunesConfigEntry) ->
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    coordinator.async_start_dynamic_refresh()
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: CasaTunesConfigEntry) -> bool:
     """Unload a CasaTunes config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        await entry.runtime_data.coordinator.async_stop_dynamic_refresh()
+    return unload_ok
