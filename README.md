@@ -9,6 +9,7 @@ The project now contains an initial working integration slice. See:
 - [Home Assistant capability mapping](docs/HOME_ASSISTANT_MAPPING.md)
 - [Initial live response capture](docs/LIVE_CAPTURE.md)
 - [Enum and image reference](docs/API_REFERENCE_VALUES.md)
+- [Release notes](CHANGELOG.md)
 
 ## Design goals
 
