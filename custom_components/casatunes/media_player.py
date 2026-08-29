@@ -505,9 +505,14 @@ class CasaTunesZoneEntity(CoordinatorEntity[CasaTunesCoordinator], MediaPlayerEn
         )
 
     async def async_mute_volume(self, mute: bool) -> None:
-        await self._async_command(
-            self.coordinator.client.async_update_zone(self._zone_id, Mute=mute)
-        )
+        try:
+            zone = await self.coordinator.client.async_update_zone(
+                self._zone_id, Mute=mute
+            )
+        except CasaTunesError as err:
+            raise HomeAssistantError(f"CasaTunes command failed: {err}") from err
+        self.coordinator.async_set_optimistic_mute(zone, mute)
+        await self.coordinator.async_request_refresh()
 
     async def async_select_source(self, source: str) -> None:
         match = next(
@@ -755,7 +760,19 @@ class CasaTunesZoneEntity(CoordinatorEntity[CasaTunesCoordinator], MediaPlayerEn
         await self._async_player_action("previous")
 
     async def async_media_seek(self, position: float) -> None:
-        await self._async_player_action("position", round(position))
+        seek_position = max(0, round(position))
+        now_playing = self.now_playing
+        try:
+            await self.coordinator.client.async_player_action(
+                self._zone_id, "position", seek_position
+            )
+        except CasaTunesError as err:
+            raise HomeAssistantError(f"CasaTunes command failed: {err}") from err
+        if now_playing is not None:
+            self.coordinator.async_set_optimistic_position(
+                now_playing.source_id, seek_position
+            )
+        await self.coordinator.async_request_refresh()
 
     async def async_set_shuffle(self, shuffle: bool) -> None:
         await self._async_player_action("shuffle", "on" if shuffle else "off")

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import unittest
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, PropertyMock, patch
 
@@ -65,6 +68,47 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(UpdateFailed, "Unable to update CasaTunes state"):
             await coordinator._async_update_data()
+
+    async def test_pending_mute_masks_stale_snapshot_until_confirmed(self) -> None:
+        coordinator = object.__new__(CasaTunesCoordinator)
+        coordinator._pending_mutes = {
+            "zone-persistent-id": (True, asyncio.get_running_loop().time() + 5)
+        }
+        coordinator._pending_positions = {}
+
+        stale = _snapshot()
+        masked = coordinator._apply_pending_state(stale)
+        self.assertTrue(masked.zones[0].mute)
+        self.assertIn("zone-persistent-id", coordinator._pending_mutes)
+
+        confirmed = replace(
+            stale,
+            zones=(replace(stale.zones[0], mute=True),),
+        )
+        actual = coordinator._apply_pending_state(confirmed)
+        self.assertTrue(actual.zones[0].mute)
+        self.assertNotIn("zone-persistent-id", coordinator._pending_mutes)
+
+    async def test_pending_seek_masks_stale_position_until_confirmed(self) -> None:
+        coordinator = object.__new__(CasaTunesCoordinator)
+        issued_at = datetime.now(UTC)
+        coordinator._pending_mutes = {}
+        coordinator._pending_positions = {
+            2: (12, issued_at, asyncio.get_running_loop().time() + 5)
+        }
+
+        stale = replace(_snapshot(), captured_at=issued_at + timedelta(seconds=1))
+        masked = coordinator._apply_pending_state(stale)
+        self.assertEqual(masked.now_playing[0].progress, 13)
+        self.assertIn(2, coordinator._pending_positions)
+
+        confirmed = replace(
+            stale,
+            now_playing=(replace(stale.now_playing[0], progress=13),),
+        )
+        actual = coordinator._apply_pending_state(confirmed)
+        self.assertEqual(actual.now_playing[0].progress, 13)
+        self.assertNotIn(2, coordinator._pending_positions)
 
     async def test_coordinator_loads_static_zone_capabilities(self) -> None:
         capabilities = ZoneCapabilities.from_dict(ZONE_CAPABILITIES)

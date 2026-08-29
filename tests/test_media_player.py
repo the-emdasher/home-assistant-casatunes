@@ -200,6 +200,30 @@ class FakeCoordinator:
     async def async_request_refresh(self) -> None:
         self.refresh_count += 1
 
+    def async_set_optimistic_mute(self, zone: Zone, mute: bool) -> None:
+        optimistic_zone = replace(zone, mute=mute)
+        self.data = replace(
+            self.data,
+            zones=tuple(
+                optimistic_zone
+                if item.persistent_zone_id == zone.persistent_zone_id
+                else item
+                for item in self.data.zones
+            ),
+        )
+
+    def async_set_optimistic_position(self, source_id: int, position: int) -> None:
+        self.data = replace(
+            self.data,
+            now_playing=tuple(
+                replace(item, progress=position)
+                if item.source_id == source_id
+                else item
+                for item in self.data.now_playing
+            ),
+            captured_at=datetime.now(UTC),
+        )
+
 
 def _snapshot(
     *,
@@ -320,6 +344,8 @@ class MediaPlayerEntityTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(coordinator.refresh_count, 8)
+        self.assertTrue(entity.is_volume_muted)
+        self.assertEqual(entity.media_position, 13)
 
     async def test_browse_search_play_enqueue_and_queue(self) -> None:
         coordinator = FakeCoordinator(_snapshot())
