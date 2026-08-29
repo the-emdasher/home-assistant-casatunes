@@ -39,9 +39,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: CasaTunesConfigEntry) ->
     entry.runtime_data = CasaTunesRuntimeData(client=client, coordinator=coordinator)
 
     system = coordinator.data.system
+    server_identifier = entry.unique_id or system.mac_address.lower()
     dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, system.mac_address.lower())},
+        identifiers={(DOMAIN, server_identifier)},
         manufacturer="CasaTunes",
         name=system.host_name,
         model=system.app_name,

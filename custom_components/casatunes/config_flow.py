@@ -100,7 +100,13 @@ class CasaTunesConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
             else:
                 await self.async_set_unique_id(unique_id)
-                self._abort_if_unique_id_mismatch()
+                # A CasaTunes server can report a different MAC address after a
+                # network-interface or IP change. Reconfigure is an explicit user
+                # action, so preserve this entry's established identity while
+                # still preventing it from being pointed at a server that already
+                # has its own config entry.
+                if unique_id != entry.unique_id:
+                    self._abort_if_unique_id_configured()
                 return self.async_update_reload_and_abort(
                     entry,
                     data_updates={

@@ -75,6 +75,10 @@ class AdvancedEntityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entity.native_min_value, -18)
         self.assertEqual(entity.native_max_value, 18)
         self.assertEqual(entity.native_step, 2)
+        self.assertEqual(
+            entity.device_info["via_device"],
+            ("casatunes", "established-server-id"),
+        )
         await entity.async_set_native_value(4.2)
 
         self.assertEqual(

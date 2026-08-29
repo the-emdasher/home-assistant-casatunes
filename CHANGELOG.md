@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.2.1 - 2026-08-29
+
+### Fixed
+
+- Allow an existing CasaTunes config entry to be reconfigured to a new IP
+  address when the server reports a different network-interface MAC address.
+- Preserve the Home Assistant server and zone device relationships across an IP
+  or network-interface change.
+- Continue to reject reconfiguration when the target CasaTunes server is already
+  configured as a separate entry.
+
 ## 0.2.0 - 2026-08-29
 
 ### Added

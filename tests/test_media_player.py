@@ -194,6 +194,7 @@ class FakeCoordinator:
     def __init__(self, data: CasaTunesSnapshot) -> None:
         self.data = data
         self.client = FakeClient(data.zones)
+        self.config_entry = SimpleNamespace(unique_id="established-server-id")
         self.last_update_success = True
         self.refresh_count = 0
 
@@ -268,6 +269,10 @@ class MediaPlayerEntityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             entity.media_image_url,
             "http://casaserver.local/art/artwork-id",
+        )
+        self.assertEqual(
+            entity.device_info["via_device"],
+            ("casatunes", "established-server-id"),
         )
 
         features = entity.supported_features

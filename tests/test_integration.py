@@ -189,6 +189,44 @@ class ConfigValidationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(validated[CONF_HOST], "casaserver.local")
         self.assertEqual(validated[CONF_PORT], 8735)
 
+    @patch("custom_components.casatunes.config_flow._async_validate_input")
+    async def test_reconfigure_accepts_changed_server_identifier(
+        self,
+        validate: unittest.mock.Mock,
+    ) -> None:
+        validate.return_value = ("new-interface-mac", "CASASERVER")
+        entry = SimpleNamespace(
+            unique_id="original-interface-mac",
+            data={CONF_HOST: "192.0.2.10", CONF_PORT: 8735},
+        )
+        flow = CasaTunesConfigFlow()
+        flow.hass = object()  # type: ignore[assignment]
+        flow._get_reconfigure_entry = unittest.mock.Mock(  # type: ignore[method-assign]
+            return_value=entry
+        )
+        expected = {"type": FlowResultType.ABORT, "reason": "reconfigure_successful"}
+
+        with (
+            patch.object(flow, "async_set_unique_id", new_callable=AsyncMock) as set_id,
+            patch.object(flow, "_abort_if_unique_id_configured") as check_duplicate,
+            patch.object(
+                flow,
+                "async_update_reload_and_abort",
+                return_value=expected,
+            ) as update,
+        ):
+            result = await flow.async_step_reconfigure(
+                {CONF_HOST: "192.0.2.20", CONF_PORT: 8735}
+            )
+
+        self.assertEqual(result, expected)
+        set_id.assert_awaited_once_with("new-interface-mac")
+        check_duplicate.assert_called_once_with()
+        update.assert_called_once_with(
+            entry,
+            data_updates={CONF_HOST: "192.0.2.20", CONF_PORT: 8735},
+        )
+
     async def test_options_flow_defaults_to_existing_hidden_setting(self) -> None:
         entry = SimpleNamespace(
             data={CONF_INCLUDE_HIDDEN: True},

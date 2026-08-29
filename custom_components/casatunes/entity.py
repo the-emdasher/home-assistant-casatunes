@@ -40,12 +40,15 @@ class CasaTunesZoneFeatureEntity(CoordinatorEntity[CasaTunesCoordinator]):
         zone = self.zone
         assert zone is not None
         system = self.coordinator.data.system
+        server_identifier = (
+            self.coordinator.config_entry.unique_id or system.mac_address.lower()
+        )
         return DeviceInfo(
             identifiers={(DOMAIN, zone.persistent_zone_id)},
             manufacturer="CasaTunes",
             model="Audio zone",
             name=zone.name,
-            via_device=(DOMAIN, system.mac_address.lower()),
+            via_device=(DOMAIN, server_identifier),
         )
 
     async def _async_set_zone_property(self, **changes: Any) -> None:
