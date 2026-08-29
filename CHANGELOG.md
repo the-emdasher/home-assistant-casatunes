@@ -1,5 +1,18 @@
 # Release notes
 
+## 0.2.0 - 2026-08-29
+
+### Added
+
+- Bundle a CasaTunes group-volume card feature for Home Assistant Tile cards.
+- Require Home Assistant 2026.6 or newer for custom Tile card feature support.
+- Place mute, volume, and grouped-speaker controls in one compact feature row.
+- Open a responsive group-volume modal from the grouped-speaker button.
+- Present the configured Tile entity as a visually prominent Master, followed by
+  separate rows for every active joined room.
+- Provide independent volume down, slider, volume up, percentage, and mute
+  controls for the Master and each joined room.
+
 ## 0.1.1 - 2026-08-29
 
 ### Fixed

@@ -39,6 +39,40 @@ This integration is currently distributed as a custom HACS repository:
 HACS requires access to the public GitHub repository when initially adding or
 updating the integration.
 
+## Group-volume Tile feature
+
+CasaTunes includes a custom feature for Home Assistant Tile cards. It adds a
+mute button, volume slider, and grouped-speaker button in one row. When the
+speaker button is selected, a modal shows a prominent Master section followed
+by independent controls for every active joined room. This feature requires
+Home Assistant 2026.6 or newer.
+
+After installing or updating CasaTunes and restarting Home Assistant, register
+the bundled JavaScript module once:
+
+1. Go to **Settings > Dashboards**.
+2. Open the three-dot menu and select **Resources**.
+3. Add `/casatunes_frontend/casatunes-group-volume.js` as a **JavaScript
+   module**.
+4. Refresh the Home Assistant frontend.
+
+Add or edit a Tile card and select the CasaTunes zone that should be treated as
+the group Master. Add **CasaTunes group volume** under the card's features and
+remove the built-in volume-slider feature to avoid showing two sliders.
+
+The equivalent YAML is:
+
+```yaml
+type: tile
+entity: media_player.office
+features:
+  - type: custom:casatunes-group-volume-card-feature
+```
+
+The speaker button is disabled when the selected Master has no active group
+members. Joined entities are discovered from Home Assistant's standard
+`group_members` state attribute; no room names are hard-coded.
+
 ## Current implementation
 
 - UI setup using host and REST API port

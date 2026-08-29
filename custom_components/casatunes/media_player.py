@@ -222,6 +222,11 @@ class CasaTunesZoneEntity(CoordinatorEntity[CasaTunesCoordinator], MediaPlayerEn
         return entity_ids or None
 
     @property
+    def extra_state_attributes(self) -> dict[str, bool]:
+        """Mark CasaTunes players supported by the bundled group-volume feature."""
+        return {"casatunes_group_volume": True}
+
+    @property
     def device_info(self) -> DeviceInfo:
         zone = self.zone
         assert zone is not None

@@ -2,14 +2,28 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import ConfigType
 
 from .casatunes_api import CasaTunesClient
-from .const import DEFAULT_PORT, DOMAIN, PLATFORMS
+from .const import DEFAULT_PORT, DOMAIN, FRONTEND_RESOURCE_URL, PLATFORMS
 from .coordinator import CasaTunesCoordinator
 from .data import CasaTunesConfigEntry, CasaTunesRuntimeData
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register frontend assets shared by all CasaTunes entries."""
+    del config
+    frontend_path = Path(__file__).parent / "frontend" / "casatunes-group-volume.js"
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(FRONTEND_RESOURCE_URL, str(frontend_path), False)]
+    )
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: CasaTunesConfigEntry) -> bool:

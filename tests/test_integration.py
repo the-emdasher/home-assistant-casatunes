@@ -14,6 +14,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
+from custom_components.casatunes import async_setup
 from custom_components.casatunes.casatunes_api import (
     CasaTunesConnectionError,
     CasaTunesSnapshot,
@@ -28,7 +29,10 @@ from custom_components.casatunes.config_flow import (
     CasaTunesOptionsFlow,
     _async_validate_input,
 )
-from custom_components.casatunes.const import CONF_INCLUDE_HIDDEN
+from custom_components.casatunes.const import (
+    CONF_INCLUDE_HIDDEN,
+    FRONTEND_RESOURCE_URL,
+)
 from custom_components.casatunes.coordinator import CasaTunesCoordinator
 from custom_components.casatunes.diagnostics import async_get_config_entry_diagnostics
 from tests.test_models import NOW_PLAYING, SOURCE, SYSTEM, ZONE, ZONE_CAPABILITIES
@@ -44,6 +48,22 @@ def _snapshot() -> CasaTunesSnapshot:
         now_playing=(NowPlaying.from_dict(NOW_PLAYING),),
         captured_at=datetime.now(UTC),
     )
+
+
+class SetupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_setup_registers_bundled_frontend_resource(self) -> None:
+        register = AsyncMock()
+        hass = SimpleNamespace(
+            http=SimpleNamespace(async_register_static_paths=register)
+        )
+
+        self.assertTrue(await async_setup(hass, {}))  # type: ignore[arg-type]
+
+        paths = register.await_args.args[0]
+        self.assertEqual(len(paths), 1)
+        self.assertEqual(paths[0].url_path, FRONTEND_RESOURCE_URL)
+        self.assertTrue(paths[0].path.endswith("casatunes-group-volume.js"))
+        self.assertFalse(paths[0].cache_headers)
 
 
 class CoordinatorTests(unittest.IsolatedAsyncioTestCase):

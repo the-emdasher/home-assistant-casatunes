@@ -254,6 +254,10 @@ class MediaPlayerEntityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entity.volume_level, 0.34)
         self.assertEqual(entity.volume_step, 0.01)
         self.assertFalse(entity.is_volume_muted)
+        self.assertEqual(
+            entity.extra_state_attributes,
+            {"casatunes_group_volume": True},
+        )
         self.assertEqual(entity.source, "Player A")
         self.assertEqual(entity.source_list, ["Player A"])
         self.assertEqual(entity.media_title, "Test Song")
