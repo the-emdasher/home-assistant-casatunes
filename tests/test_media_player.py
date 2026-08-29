@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -31,6 +32,7 @@ from custom_components.casatunes.casatunes_api.models import (
 from custom_components.casatunes.media_player import (
     QUEUE_ITEM_PREFIX,
     QUEUE_MEDIA_CONTENT_ID,
+    ROOT_MEDIA_CONTENT_ID,
     CasaTunesZoneEntity,
 )
 from tests.test_models import (
@@ -51,7 +53,13 @@ class FakeClient:
         self.player_commands: list[tuple[str, str, str | int | None]] = []
         self.media_commands: list[tuple[str, object]] = []
         self.group_commands: list[tuple[str, str, str]] = []
+        self.artwork_requests: list[str] = []
+        self.artwork_response: tuple[bytes | None, str | None] = (
+            b"\x89PNG\r\n\x1a\nvalid-image",
+            "image/png",
+        )
         self.zones = zones
+        self.media_collection = MediaCollection.from_dict(MEDIA_COLLECTION)
 
     async def async_update_zone(self, zone_id: str, **changes: object) -> Zone:
         self.zone_commands.append((zone_id, changes))
@@ -71,13 +79,19 @@ class FakeClient:
     def artwork_url(self, artwork_uri: str) -> str:
         return f"http://casaserver.local/art/{artwork_uri}"
 
+    async def async_get_artwork(
+        self, artwork_uri: str
+    ) -> tuple[bytes | None, str | None]:
+        self.artwork_requests.append(artwork_uri)
+        return self.artwork_response
+
     async def async_browse_zone(self, zone_id: str) -> MediaCollection:
         self.media_commands.append(("browse_zone", zone_id))
-        return MediaCollection.from_dict(MEDIA_COLLECTION)
+        return self.media_collection
 
     async def async_browse_media(self, media_id: str) -> MediaCollection:
         self.media_commands.append(("browse_media", media_id))
-        return MediaCollection.from_dict(MEDIA_COLLECTION)
+        return self.media_collection
 
     async def async_search_zone(
         self, zone_id: str, search_text: str
@@ -399,6 +413,103 @@ class MediaPlayerEntityTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(coordinator.refresh_count, 3)
+
+    async def test_browse_artwork_uses_ha_proxy_and_returns_image(self) -> None:
+        coordinator = FakeCoordinator(_snapshot())
+        coordinator.client.media_collection = MediaCollection.from_dict(
+            {
+                **MEDIA_COLLECTION,
+                "ArtworkURI": "http://casaserver.local/root-art.png",
+                "MediaItems": [
+                    {
+                        **MEDIA_ITEM,
+                        "ArtworkURI": "http://casaserver.local/item-art.png",
+                    }
+                ],
+            }
+        )
+        entity = CasaTunesZoneEntity(  # type: ignore[arg-type]
+            coordinator, "zone-persistent-id"
+        )
+        entity.entity_id = "media_player.office"
+
+        root = await entity.async_browse_media()
+        child = await entity.async_browse_media(
+            media_content_type=MediaType.MUSIC,
+            media_content_id="collection-id",
+        )
+        self.assertEqual(root.children[1].media_content_id, "media-item-id")
+        self.assertEqual(child.media_content_id, "collection-id")
+        self.assertEqual(child.children[0].media_content_id, "media-item-id")
+
+        thumbnails = [
+            root.thumbnail,
+            root.children[1].thumbnail,
+            child.thumbnail,
+            child.children[0].thumbnail,
+        ]
+        for thumbnail in thumbnails:
+            self.assertIsNotNone(thumbnail)
+            assert thumbnail is not None
+            self.assertTrue(
+                thumbnail.startswith(
+                    "/api/media_player_proxy/media_player.office/browse_media/"
+                )
+            )
+        serialized = json.dumps(
+            {"root": root.as_dict(), "child": child.as_dict()},
+            sort_keys=True,
+        )
+        self.assertNotIn("casaserver.local", serialized)
+        self.assertNotIn("root-art.png", serialized)
+        self.assertNotIn("item-art.png", serialized)
+
+        content, content_type = await entity.async_get_browse_image(
+            MediaType.TRACK,
+            "media-item-id",
+        )
+        self.assertEqual(content, b"\x89PNG\r\n\x1a\nvalid-image")
+        self.assertEqual(content_type, "image/png")
+        self.assertEqual(
+            coordinator.client.artwork_requests,
+            ["http://casaserver.local/item-art.png"],
+        )
+
+        root_content, root_content_type = await entity.async_get_browse_image(
+            MediaType.MUSIC,
+            ROOT_MEDIA_CONTENT_ID,
+        )
+        self.assertEqual(root_content, b"\x89PNG\r\n\x1a\nvalid-image")
+        self.assertEqual(root_content_type, "image/png")
+
+    async def test_browse_artwork_failure_does_not_break_browsing(self) -> None:
+        coordinator = FakeCoordinator(_snapshot())
+        coordinator.client.artwork_response = (None, None)
+        entity = CasaTunesZoneEntity(  # type: ignore[arg-type]
+            coordinator, "zone-persistent-id"
+        )
+        entity.entity_id = "media_player.office"
+
+        root = await entity.async_browse_media()
+        self.assertEqual(root.title, "Music")
+        self.assertEqual(root.children[1].title, "Browsable Song")
+        self.assertEqual(
+            await entity.async_get_browse_image(MediaType.TRACK, "media-item-id"),
+            (None, None),
+        )
+        self.assertEqual(
+            await entity.async_get_browse_image(MediaType.TRACK, "unknown-id"),
+            (None, None),
+        )
+        self.assertEqual(
+            await entity.async_get_browse_image(
+                MediaType.TRACK,
+                "media-item-id",
+                media_image_id="http://casaserver.local/not-allowed",
+            ),
+            (None, None),
+        )
+        self.assertEqual(coordinator.client.artwork_requests, ["browse-artwork-id"])
 
     def test_powered_off_zone_maps_to_off(self) -> None:
         coordinator = FakeCoordinator(_snapshot(zone_data=dict(ZONE, Power=False)))

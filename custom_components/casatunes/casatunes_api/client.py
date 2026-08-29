@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 
 import aiohttp
+from aiohttp.hdrs import CONTENT_LENGTH, CONTENT_TYPE
 from yarl import URL
 
 from .enums import ImageTransform, ImageType
@@ -26,6 +27,31 @@ from .models import (
 )
 
 DEFAULT_PORT = 8735
+MAX_ARTWORK_BYTES = 5 * 1024 * 1024
+ARTWORK_CHUNK_SIZE = 64 * 1024
+
+
+def _image_content_type(content: bytes) -> str | None:
+    """Identify supported raster image content from its signature."""
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if content.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _normalized_image_content_type(value: str) -> str | None:
+    """Normalize safe raster image response types."""
+    content_type = value.partition(";")[0].strip().lower()
+    if content_type in {"image/jpg", "image/pjpeg"}:
+        return "image/jpeg"
+    if content_type in {"image/png", "image/jpeg", "image/gif", "image/webp"}:
+        return content_type
+    return None
 
 
 class CasaTunesClient:
@@ -105,6 +131,52 @@ class CasaTunesClient:
                 }
             )
         )
+
+    async def async_get_artwork(
+        self, artwork_uri: str
+    ) -> tuple[bytes | None, str | None]:
+        """Return validated, size-limited artwork without exposing its URL."""
+        artwork_url = self.artwork_url(artwork_uri)
+        if artwork_url is None:
+            return None, None
+        try:
+            async with asyncio.timeout(self._request_timeout):
+                response = await self._session.get(
+                    URL(artwork_url),
+                    headers={"Accept": "image/png,image/jpeg,image/gif,image/webp"},
+                    allow_redirects=True,
+                )
+                async with response:
+                    if response.status != 200:
+                        return None, None
+                    response_type = _normalized_image_content_type(
+                        response.headers.get(CONTENT_TYPE, "")
+                    )
+                    if response_type is None:
+                        return None, None
+                    content_length = response.headers.get(CONTENT_LENGTH)
+                    if content_length is not None:
+                        try:
+                            declared_length = int(content_length)
+                        except ValueError:
+                            return None, None
+                        if not 0 <= declared_length <= MAX_ARTWORK_BYTES:
+                            return None, None
+
+                    content = bytearray()
+                    async for chunk in response.content.iter_chunked(
+                        ARTWORK_CHUNK_SIZE
+                    ):
+                        if len(content) + len(chunk) > MAX_ARTWORK_BYTES:
+                            return None, None
+                        content.extend(chunk)
+        except (TimeoutError, aiohttp.ClientError, ValueError):
+            return None, None
+
+        image_type = _image_content_type(content)
+        if image_type is None or image_type != response_type:
+            return None, None
+        return bytes(content), image_type
 
     async def _get_json(
         self, path: str, params: Mapping[str, str | int | float | bool] | None = None

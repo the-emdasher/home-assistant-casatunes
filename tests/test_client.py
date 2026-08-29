@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from casatunes_api.client import CasaTunesClient
+from casatunes_api.client import MAX_ARTWORK_BYTES, CasaTunesClient
 from casatunes_api.enums import ImageTransform, ImageType
 from casatunes_api.exceptions import CasaTunesResponseError
 
@@ -19,11 +19,37 @@ from tests.test_models import (
     ZONE_CAPABILITIES,
 )
 
+VALID_PNG = bytes.fromhex(
+    "89504e470d0a1a0a"
+    "0000000d49484452000000010000000108060000001f15c489"
+    "0000000d49444154789c6360000000020001e221bc33"
+    "0000000049454e44ae426082"
+)
+
+
+class FakeContent:
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    async def iter_chunked(self, size: int):  # type: ignore[no-untyped-def]
+        for offset in range(0, len(self.body), size):
+            yield self.body[offset : offset + size]
+
 
 class FakeResponse:
-    def __init__(self, payload: Any, status: int = 200) -> None:
+    def __init__(
+        self,
+        payload: Any,
+        status: int = 200,
+        *,
+        body: bytes = b"",
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.payload = payload
         self.status = status
+        self.body = body
+        self.headers = headers or {}
+        self.content = FakeContent(body)
 
     async def __aenter__(self) -> FakeResponse:
         return self
@@ -38,7 +64,7 @@ class FakeResponse:
         return str(self.payload)
 
     async def read(self) -> bytes:
-        return b""
+        return self.body
 
 
 class FakeSession:
@@ -48,7 +74,7 @@ class FakeSession:
         self.request_kwargs: list[dict[str, Any]] = []
 
     async def get(self, url: Any, **kwargs: Any) -> FakeResponse:
-        path = url.path.removeprefix("/api/v1/")
+        path = url.path.removeprefix("/api/v1/").lstrip("/")
         self.requests.append(path)
         self.request_kwargs.append(kwargs)
         payload = self.responses[path]
@@ -58,6 +84,83 @@ class FakeSession:
 
 
 class ClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_artwork_fetch_returns_validated_bytes_and_type(self) -> None:
+        session = FakeSession(
+            {
+                "casatunes/GetImage.ashx": FakeResponse(
+                    None,
+                    body=VALID_PNG,
+                    headers={
+                        "Content-Type": "image/png; charset=binary",
+                        "Content-Length": str(len(VALID_PNG)),
+                    },
+                )
+            }
+        )
+        client = CasaTunesClient("casaserver.local", session)  # type: ignore[arg-type]
+
+        content, content_type = await client.async_get_artwork("artwork-id")
+
+        self.assertEqual(content, VALID_PNG)
+        self.assertEqual(content_type, "image/png")
+        self.assertEqual(session.requests, ["casatunes/GetImage.ashx"])
+        self.assertEqual(
+            session.request_kwargs[0]["headers"]["Accept"],
+            "image/png,image/jpeg,image/gif,image/webp",
+        )
+
+    async def test_artwork_fetch_rejects_invalid_non_image_and_oversized_data(
+        self,
+    ) -> None:
+        cases = {
+            "invalid image bytes": FakeResponse(
+                None,
+                body=b"not a png",
+                headers={"Content-Type": "image/png"},
+            ),
+            "non-image response": FakeResponse(
+                None,
+                body=VALID_PNG,
+                headers={"Content-Type": "text/html"},
+            ),
+            "oversized response": FakeResponse(
+                None,
+                body=VALID_PNG,
+                headers={
+                    "Content-Type": "image/png",
+                    "Content-Length": str(MAX_ARTWORK_BYTES + 1),
+                },
+            ),
+            "oversized streamed response": FakeResponse(
+                None,
+                body=VALID_PNG + bytes(MAX_ARTWORK_BYTES),
+                headers={"Content-Type": "image/png"},
+            ),
+            "missing response": FakeResponse(
+                None,
+                status=404,
+                headers={"Content-Type": "image/png"},
+            ),
+        }
+        for name, response in cases.items():
+            with self.subTest(name):
+                session = FakeSession({"casatunes/GetImage.ashx": response})
+                client = CasaTunesClient(  # type: ignore[arg-type]
+                    "casaserver.local", session
+                )
+
+                self.assertEqual(
+                    await client.async_get_artwork("artwork-id"),
+                    (None, None),
+                )
+
+        empty_session = FakeSession({})
+        empty_client = CasaTunesClient(  # type: ignore[arg-type]
+            "casaserver.local", empty_session
+        )
+        self.assertEqual(await empty_client.async_get_artwork(""), (None, None))
+        self.assertEqual(empty_session.requests, [])
+
     async def test_snapshot_joins_four_documented_reads(self) -> None:
         session = FakeSession(
             {

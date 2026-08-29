@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Awaitable
 from datetime import datetime
 from typing import Any
@@ -54,6 +55,7 @@ QUEUE_ITEM_PREFIX = "casatunes:queue-item:"
 GROUP_POLL_INTERVAL = 0.5
 GROUP_WAIT_SECONDS = 6.0
 POWER_SETTLE_SECONDS = 1.0
+BROWSE_ARTWORK_CACHE_SIZE = 512
 
 
 def _media_class(item: MediaItem) -> MediaClass:
@@ -149,6 +151,7 @@ class CasaTunesZoneEntity(CoordinatorEntity[CasaTunesCoordinator], MediaPlayerEn
         super().__init__(coordinator)
         self._zone_id = zone_id
         self._attr_unique_id = zone_id
+        self._browse_artwork: OrderedDict[tuple[str, str], str] = OrderedDict()
 
     @property
     def zone(self) -> Zone | None:
@@ -337,15 +340,36 @@ class CasaTunesZoneEntity(CoordinatorEntity[CasaTunesCoordinator], MediaPlayerEn
         song = self.now_playing.current_song if self.now_playing else None
         return self.coordinator.client.artwork_url(song.artwork_uri) if song else None
 
+    def _browse_artwork_url(
+        self,
+        media_content_type: MediaType | str,
+        media_content_id: str,
+        artwork_uri: str,
+    ) -> str | None:
+        """Return an HA proxy path while retaining artwork data server-side."""
+        if not artwork_uri or self.entity_id is None:
+            return None
+        key = (str(media_content_type), media_content_id)
+        self._browse_artwork[key] = artwork_uri
+        self._browse_artwork.move_to_end(key)
+        while len(self._browse_artwork) > BROWSE_ARTWORK_CACHE_SIZE:
+            self._browse_artwork.popitem(last=False)
+        return self.get_browse_image_url(str(media_content_type), media_content_id)
+
     def _browse_item(self, item: MediaItem) -> BrowseMedia:
+        media_content_type = _media_type(item)
         return BrowseMedia(
             media_class=_media_class(item),
             media_content_id=item.id,
-            media_content_type=_media_type(item),
+            media_content_type=media_content_type,
             title=item.title or item.details or "Untitled",
             can_play=item.can_play,
             can_expand=item.can_expand,
-            thumbnail=self.coordinator.client.artwork_url(item.artwork_uri),
+            thumbnail=self._browse_artwork_url(
+                media_content_type,
+                item.id,
+                item.artwork_uri,
+            ),
         )
 
     def _browse_collection(
@@ -381,7 +405,11 @@ class CasaTunesZoneEntity(CoordinatorEntity[CasaTunesCoordinator], MediaPlayerEn
             can_play=False,
             can_expand=True,
             children=children,
-            thumbnail=self.coordinator.client.artwork_url(collection.artwork_uri),
+            thumbnail=self._browse_artwork_url(
+                MediaType.MUSIC,
+                content_id,
+                collection.artwork_uri,
+            ),
             not_shown=not_shown,
             can_search=collection.can_search,
             search_media_classes=[
@@ -394,18 +422,25 @@ class CasaTunesZoneEntity(CoordinatorEntity[CasaTunesCoordinator], MediaPlayerEn
         )
 
     def _browse_queue(self, queue: MediaQueue) -> BrowseMedia:
-        children = [
-            BrowseMedia(
-                media_class=_media_class(item),
-                media_content_id=f"{QUEUE_ITEM_PREFIX}{queue.start_index + index}",
-                media_content_type=_media_type(item),
-                title=item.title or item.details or f"Queue item {index + 1}",
-                can_play=True,
-                can_expand=False,
-                thumbnail=self.coordinator.client.artwork_url(item.artwork_uri),
+        children: list[BrowseMedia] = []
+        for index, item in enumerate(queue.media_items):
+            media_content_id = f"{QUEUE_ITEM_PREFIX}{queue.start_index + index}"
+            media_content_type = _media_type(item)
+            children.append(
+                BrowseMedia(
+                    media_class=_media_class(item),
+                    media_content_id=media_content_id,
+                    media_content_type=media_content_type,
+                    title=item.title or item.details or f"Queue item {index + 1}",
+                    can_play=True,
+                    can_expand=False,
+                    thumbnail=self._browse_artwork_url(
+                        media_content_type,
+                        media_content_id,
+                        item.artwork_uri,
+                    ),
+                )
             )
-            for index, item in enumerate(queue.media_items)
-        ]
         return BrowseMedia(
             media_class=MediaClass.PLAYLIST,
             media_content_id=QUEUE_MEDIA_CONTENT_ID,
@@ -416,6 +451,22 @@ class CasaTunesZoneEntity(CoordinatorEntity[CasaTunesCoordinator], MediaPlayerEn
             children=children,
             not_shown=max(0, queue.total_available - len(queue.media_items)),
         )
+
+    async def async_get_browse_image(
+        self,
+        media_content_type: str,
+        media_content_id: str,
+        media_image_id: str | None = None,
+    ) -> tuple[bytes | None, str | None]:
+        """Fetch one previously browsed artwork image through CasaTunes."""
+        if media_image_id is not None:
+            return None, None
+        artwork_uri = self._browse_artwork.get(
+            (str(media_content_type), media_content_id)
+        )
+        if artwork_uri is None:
+            return None, None
+        return await self.coordinator.client.async_get_artwork(artwork_uri)
 
     @property
     def supported_features(self) -> MediaPlayerEntityFeature:

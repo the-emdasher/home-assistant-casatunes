@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.2.2 - 2026-08-29
+
+### Fixed
+
+- Route media-browser thumbnails through Home Assistant's authenticated
+  media-player image proxy instead of exposing CasaTunes artwork URLs.
+- Reject missing, invalid, oversized, and non-image artwork responses without
+  interrupting media browsing.
+
 ## 0.2.1 - 2026-08-29
 
 ### Fixed
